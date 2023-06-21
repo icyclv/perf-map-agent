@@ -25,6 +25,7 @@
 
 #include "perf-map-file.h"
 
+// 创建perf-<pid>.map文件
 FILE *perf_map_open(pid_t pid) {
     char filename[500];
     snprintf(filename, sizeof(filename), "/tmp/perf-%d.map", pid);
@@ -43,6 +44,7 @@ int perf_map_close(FILE *fp) {
         return 0;
 }
 
+// 添加一行记录，格式为：code_addr code_size entry
 void perf_map_write_entry(FILE *method_file, const void* code_addr, unsigned int code_size, const char* entry) {
     if (method_file)
         fprintf(method_file, "%lx %x %s\n", (unsigned long) code_addr, code_size, entry);

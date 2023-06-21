@@ -35,6 +35,7 @@ public class AttachOnce {
     }
 
     static void loadAgent(String pid, String options) throws Exception {
+        // attach到目标进程
         VirtualMachine vm = VirtualMachine.attach(pid);
         try {
             final File lib;
@@ -48,6 +49,7 @@ public class AttachOnce {
                 System.out.printf("Expected %s at '%s' but it didn't exist.\n", lib.getName(), fullPath);
                 System.exit(1);
             }
+            // 加载agent
             else vm.loadAgentPath(fullPath, options);
         } catch(com.sun.tools.attach.AgentInitializationException e) {
             // rethrow all but the expected exception

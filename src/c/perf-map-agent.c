@@ -47,7 +47,7 @@ bool debug_dump_unfold_entries = false;
 
 FILE *method_file = NULL;
 
-
+// 创建perf-<pid>.map文件
 void open_map_file() {
     if (!method_file)
         method_file = perf_map_open(getpid());
@@ -58,8 +58,10 @@ void close_map_file() {
 }
 
 void deallocate(jvmtiEnv *jvmti, void *string) {
+    // 释放内存
     if (string != NULL) (*jvmti)->Deallocate(jvmti, (unsigned char *) string);
 }
+
 
 char *frame_annotation(bool inlined) {
     return annotate_java_frames ? (inlined ? "_[i]" : "_[j]") : "";
@@ -74,6 +76,8 @@ static int get_line_number(jvmtiLineNumberEntry *table, jint entry_count, jlocat
 }
 
 void class_name_from_sig(char *dest, size_t dest_size, const char *sig) {
+    //  格式化代码，例如 Ljava/lang/String; -> java.lang.String
+    //  默认为false
     if ((clean_class_names || dotted_class_names) && sig[0] == 'L') {
         const char *src = clean_class_names ? sig + 1 : sig;
         int i;
@@ -99,14 +103,16 @@ static void sig_string(jvmtiEnv *jvmti, jmethodID method, char *output, size_t n
     jint entrycount = 0;
 
     strncpy(output, "<error writing signature>", noutput);
-
+    // 获取方法名
     if (!(*jvmti)->GetMethodName(jvmti, method, &method_name, &msig, NULL)) {
+        // 获取类名和签名
         if (!(*jvmti)->GetMethodDeclaringClass(jvmti, method, &class) &&
             !(*jvmti)->GetClassSignature(jvmti, class, &csig, NULL)) {
 
             char source_info[1000] = "";
             char *method_signature = "";
 
+            // 如果需要输出文件名、行号
             if (print_source_loc) {
                 if (!(*jvmti)->GetSourceFileName(jvmti, class, &sourcefile)) {
                     if (!(*jvmti)->GetLineNumberTable(jvmti, method, &entrycount, &lines)) {
@@ -119,12 +125,14 @@ static void sig_string(jvmtiEnv *jvmti, jmethodID method, char *output, size_t n
                     deallocate(jvmti, (unsigned char *) sourcefile);
                 }
             }
-
+            // 如果需要输出方法签名
             if (print_method_signatures && msig)
                 method_signature = msig;
 
             char class_name[STRING_BUFFER_SIZE];
+            // 格式化类名
             class_name_from_sig(class_name, sizeof(class_name), csig);
+            // 把结果输出到output中
             snprintf(output, noutput, "%s::%s%s%s%s",
                      class_name, method_name, method_signature, source_info, annotation);
 
@@ -140,8 +148,14 @@ void generate_single_entry(
         jmethodID method,
         const void *code_addr,
         jint code_size) {
+    //生成被JIT编译器编译过的Java方法的方法名同生成的机器码的内存地址的映射，
+    // 其主要逻辑是根据jmvtiEnv的方法获取Java方法的方法名，方法签名，所属的类名，源代码文件名和方法的行数等属性，
+    // 将这些信息格式化拼装成一个字符串，同编译生成的机器码的内存地址，机器码的大小一同写入文件中。
+
     char entry[STRING_BUFFER_SIZE];
+    // 生成方法名、方法签名、类名、源代码文件名和方法的行数等属性，保存在entry中
     sig_string(jvmti, method, entry, sizeof(entry), frame_annotation(false));
+    // 将地址、大小、entry写入perf-<pid>.map文件中
     perf_map_write_entry(method_file, code_addr, (unsigned int) code_size, entry);
 }
 
@@ -233,16 +247,20 @@ void generate_unfolded_entries(
         jint code_size,
         const void* code_addr,
         const void* compile_info) {
-    const jvmtiCompiledMethodLoadRecordHeader *header = compile_info;
+    const jvmtiCompiledMethodLoadRecordHeader *header = compile_info; // 获取编译方法加载记录头部信息
     char root_name[STRING_BUFFER_SIZE];
 
+    // 获取根方法，即内联方法的最顶层方法
     sig_string(jvmti, root_method, root_name, sizeof(root_name), "");
 
+    // 如果需要debug，则将根方法的调用栈dump出来
     if (debug_dump_unfold_entries)
         dump_entries(jvmti, root_method, code_size, code_addr, compile_info);
 
+    // 如果是内联方法
     if (header->kind == JVMTI_CMLR_INLINE_INFO) {
-        const jvmtiCompiledMethodLoadInlineRecord *record = (jvmtiCompiledMethodLoadInlineRecord *) header;
+
+        const jvmtiCompiledMethodLoadInlineRecord *record = (jvmtiCompiledMethodLoadInlineRecord *) header;  // 转换为内联记录类型
 
         const void *start_addr = code_addr;
         jmethodID cur_method = root_method;
@@ -260,9 +278,9 @@ void generate_unfolded_entries(
                 void *end_addr = info->pc;
 
                 if (i > 0)
-                    write_unfolded_entry(jvmti, &record->pcinfo[i - 1], root_method, root_name, start_addr, end_addr);
+                    write_unfolded_entry(jvmti, &record->pcinfo[i - 1], root_method, root_name, start_addr, end_addr); // 写入展开的条目
                 else
-                    generate_single_entry(jvmti, root_method, start_addr, (unsigned int) (end_addr - start_addr));
+                    generate_single_entry(jvmti, root_method, start_addr, (unsigned int) (end_addr - start_addr)); // 生成单个条目
 
                 start_addr = info->pc;
                 cur_method = top_method;
@@ -272,7 +290,7 @@ void generate_unfolded_entries(
         // record the last range if there's a gap
         if (start_addr != code_addr + code_size) {
             // end_addr is end of this complete code blob
-            const void *end_addr = code_addr + code_size;
+            const void *end_addr = code_addr + code_size; // 获取结束地址
 
             if (i > 0)
                 write_unfolded_entry(jvmti, &record->pcinfo[i - 1], root_method, root_name, start_addr, end_addr);
@@ -293,6 +311,7 @@ cbCompiledMethodLoad(
             jint map_length,
             const jvmtiAddrLocationMap* map,
             const void* compile_info) {
+    // generate_unfolded_entries会把内联优化掉的子方法的方法名同内存地址的映射也写入到映射文件中
     if (unfold_inlined_methods && compile_info != NULL)
         generate_unfolded_entries(jvmti, method, code_size, code_addr, compile_info);
     else
@@ -308,7 +327,10 @@ cbDynamicCodeGenerated(jvmtiEnv *jvmti,
 }
 
 void set_notification_mode(jvmtiEnv *jvmti, jvmtiEventMode mode) {
+    //JVMTI_EVENT_COMPILED_METHOD_LOAD：Java方法被hotspot JIT编译器编译的事件。当方法被编译时,会发送此事件通知agent。
     (*jvmti)->SetEventNotificationMode(jvmti, mode, JVMTI_EVENT_COMPILED_METHOD_LOAD, (jthread)NULL);
+    //JVMTI_EVENT_DYNAMIC_CODE_GENERATED：表示Java方法的本地代码被JIT编译器动态生成的事件。
+    //         和JVMTI_EVENT_COMPILED_METHOD_LOAD事件类似,但这个事件发送的时机稍晚,代表实际的本地代码已经产生。
     (*jvmti)->SetEventNotificationMode(jvmti, mode, JVMTI_EVENT_DYNAMIC_CODE_GENERATED, (jthread)NULL);
 }
 
@@ -316,22 +338,34 @@ jvmtiError enable_capabilities(jvmtiEnv *jvmti) {
     jvmtiCapabilities capabilities;
 
     memset(&capabilities,0, sizeof(capabilities));
+    // 可以为每个加载的类生成 ClassFileLoadHook 事件。
     capabilities.can_generate_all_class_hook_events  = 1;
+    // 启用对象标记功能
     capabilities.can_tag_objects                     = 1;
+    // 启用对象释放事件生成功能
     capabilities.can_generate_object_free_events     = 1;
+    // 启用获取源文件名功能
     capabilities.can_get_source_file_name            = 1;
+    // 启用获取行号功能
     capabilities.can_get_line_numbers                = 1;
+    // 启用VM对象分配事件生成功能
     capabilities.can_generate_vm_object_alloc_events = 1;
+    // 启用编译方法加载事件生成功能
     capabilities.can_generate_compiled_method_load_events = 1;
 
-    // Request these capabilities for this JVM TI environment.
+    // 为此JVM TI环境请求这些功能
     return (*jvmti)->AddCapabilities(jvmti, &capabilities);
 }
 
 jvmtiError set_callbacks(jvmtiEnv *jvmti) {
+    //设置回调函数
     jvmtiEventCallbacks callbacks;
 
     memset(&callbacks, 0, sizeof(callbacks));
+    // JVMTI_EVENT_COMPILED_METHOD_LOAD：Java方法被hotspot JIT编译器编译的事件。当方法被编译时,会发送此事件通知agent。
+    // JVMTI_EVENT_DYNAMIC_CODE_GENERATED：当VM的某个组件动态生成代码时会发送此事件。也就是一个本地方法根据命令行参数被动态编译完成后触发的事件。
+    //                                     Interpreter也属于此类。 参考：https://stackoverflow.com/questions/64321066/what-is-diff-between-jvmti-event-compiled-method-and-jvmti-event-dynamic-code
+
     callbacks.CompiledMethodLoad  = &cbCompiledMethodLoad;
     callbacks.DynamicCodeGenerated = &cbDynamicCodeGenerated;
     return (*jvmti)->SetEventCallbacks(jvmti, &callbacks, (jint)sizeof(callbacks));
@@ -339,8 +373,8 @@ jvmtiError set_callbacks(jvmtiEnv *jvmti) {
 
 JNIEXPORT jint JNICALL
 Agent_OnAttach(JavaVM *vm, char *options, void *reserved) {
-    open_map_file();
-
+    open_map_file(); // 创建perf-$pid.map文件
+    // 参数初始化
     unfold_simple = strstr(options, "unfoldsimple") != NULL;
     unfold_all = strstr(options, "unfoldall") != NULL;
     unfold_inlined_methods = strstr(options, "unfold") != NULL || unfold_simple || unfold_all;
@@ -354,12 +388,19 @@ Agent_OnAttach(JavaVM *vm, char *options, void *reserved) {
     unfold_delimiter = use_semicolon_unfold_delimiter ? ";" : "->";
 
     debug_dump_unfold_entries = strstr(options, "debug_dump_unfold_entries") != NULL;
-
+    // 定义并获取jvmtiEnv
     jvmtiEnv *jvmti;
     (*vm)->GetEnv(vm, (void **)&jvmti, JVMTI_VERSION_1);
+    // 注册JVM TI 的Capabilities
     enable_capabilities(jvmti);
+    // 注册JVM TI 的回调函数
     set_callbacks(jvmti);
+    // 设置通知模式
     set_notification_mode(jvmti, JVMTI_ENABLE);
+    // 生成事件，因为是在目标程序执行开始后才开始附加代理
+    // 一些事件已经被触发过了，因此这里重新触发一次，防止错过事件
+    // 例如：`JVMTI_EVENT_COMPILED_METHOD_LOAD`,会为每个当前编译的方法发送一个`CompiledMethodLoad`事件，不过之前加载但现已卸载的方法不会发送。
+    // 每次调用此函数时,所有当前编译的方法都将被发送。
     (*jvmti)->GenerateEvents(jvmti, JVMTI_EVENT_DYNAMIC_CODE_GENERATED);
     (*jvmti)->GenerateEvents(jvmti, JVMTI_EVENT_COMPILED_METHOD_LOAD);
     set_notification_mode(jvmti, JVMTI_DISABLE);
