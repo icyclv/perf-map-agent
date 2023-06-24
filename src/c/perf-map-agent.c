@@ -327,10 +327,7 @@ cbDynamicCodeGenerated(jvmtiEnv *jvmti,
 }
 
 void set_notification_mode(jvmtiEnv *jvmti, jvmtiEventMode mode) {
-    //JVMTI_EVENT_COMPILED_METHOD_LOAD：Java方法被hotspot JIT编译器编译的事件。当方法被编译时,会发送此事件通知agent。
     (*jvmti)->SetEventNotificationMode(jvmti, mode, JVMTI_EVENT_COMPILED_METHOD_LOAD, (jthread)NULL);
-    //JVMTI_EVENT_DYNAMIC_CODE_GENERATED：表示Java方法的本地代码被JIT编译器动态生成的事件。
-    //         和JVMTI_EVENT_COMPILED_METHOD_LOAD事件类似,但这个事件发送的时机稍晚,代表实际的本地代码已经产生。
     (*jvmti)->SetEventNotificationMode(jvmti, mode, JVMTI_EVENT_DYNAMIC_CODE_GENERATED, (jthread)NULL);
 }
 
@@ -353,7 +350,6 @@ jvmtiError enable_capabilities(jvmtiEnv *jvmti) {
     // 启用编译方法加载事件生成功能
     capabilities.can_generate_compiled_method_load_events = 1;
 
-    // 为此JVM TI环境请求这些功能
     return (*jvmti)->AddCapabilities(jvmti, &capabilities);
 }
 
@@ -362,8 +358,8 @@ jvmtiError set_callbacks(jvmtiEnv *jvmti) {
     jvmtiEventCallbacks callbacks;
 
     memset(&callbacks, 0, sizeof(callbacks));
-    // JVMTI_EVENT_COMPILED_METHOD_LOAD：Java方法被hotspot JIT编译器编译的事件。当方法被编译时,会发送此事件通知agent。
-    // JVMTI_EVENT_DYNAMIC_CODE_GENERATED：当VM的某个组件动态生成代码时会发送此事件。也就是一个本地方法根据命令行参数被动态编译完成后触发的事件。
+    // CompiledMethodLoad：Java方法被hotspot JIT编译器编译的事件。当方法被编译时,会发送此事件通知agent。
+    // DynamicCodeGenerated：当VM的某个组件动态生成代码时会发送此事件。也就是一个本地方法根据命令行参数被动态编译完成后触发的事件。
     //                                     Interpreter也属于此类。 参考：https://stackoverflow.com/questions/64321066/what-is-diff-between-jvmti-event-compiled-method-and-jvmti-event-dynamic-code
 
     callbacks.CompiledMethodLoad  = &cbCompiledMethodLoad;
